@@ -1,0 +1,27 @@
+default_action: audit
+rules:
+  - name: block_crypto_miners
+    process_pattern: "xmrig"
+    syscall_types: ["*"]
+    action: deny
+    priority: 100
+  - name: alert_bash_in_container
+    process_pattern: "bash"
+    syscall_types: ["execve"]
+    action: alert
+    priority: 80
+  - name: deny_outbound_unknown
+    process_pattern: "unknown"
+    syscall_types: ["connect"]
+    action: deny
+    priority: 90
+  - name: audit_all_execve
+    process_pattern: "*"
+    syscall_types: ["execve"]
+    action: audit
+    priority: 10
+  - name: allow_apex
+    process_pattern: "apex"
+    syscall_types: ["*"]
+    action: allow
+    priority: 200
