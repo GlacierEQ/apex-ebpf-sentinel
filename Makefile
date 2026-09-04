@@ -10,8 +10,10 @@ vet:
 	go vet ./...
 
 build-bpf:
-	# Linux only
-	clang -O2 -g -target bpf -c src/sentinels/syscall_sentinel.bpf.c -o bin/syscall_sentinel.bpf.o
+	mkdir -p bin
+	clang -O2 -g -target bpf -D__TARGET_ARCH_x86 \
+		-I src/sentinels -I /usr/include \
+		-c src/sentinels/syscall_sentinel.bpf.c -o bin/syscall_sentinel.bpf.o
 
 run: build
 	./bin/sentinel --policy config/policy.yaml
