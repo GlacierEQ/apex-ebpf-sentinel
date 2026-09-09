@@ -68,58 +68,70 @@ func (p *PolicyEngine) AddRule(rule Rule) {
 	})
 }
 
-// Evaluate expects loader.SentinelEvent, but to avoid circular dep we use interface{} or duplicate it
-// Let's create an abstraction or just use the fields.
-// Since loader depends on policy, we can just define a struct here to avoid import cycle
+// Event is the cycle-free view of a syscall the loader already saw.
 type Event struct {
 	Comm    string
 	Syscall string
 }
 
-// In the prompt, loader.SentinelEvent is passed to Evaluate.
-// I'll make Evaluate take an interface and extract or just pass the required fields.
-func (p *PolicyEngine) Evaluate(event interface{}) Action {
-	// reflection or type assertion for loader.SentinelEvent. 
-	// To keep it simple and type safe, let's just use string passing or duck typing
-	// but the prompt says Evaluate(event SentinelEvent). 
-	// That causes an import cycle if loader imports policy and policy imports loader.
-	// So policy shouldn't import loader.
-	return p.evaluateEvent(event)
-}
-
-func (p *PolicyEngine) evaluateEvent(event interface{}) Action {
-	var comm, syscall string
-	
-	// Try to get fields
-	switch e := event.(type) {
-	case struct{ Comm, Syscall string }:
-		comm = e.Comm
-		syscall = e.Syscall
-	default:
-		// Workaround for import cycle:
-		// use reflection if needed, but here we can just assume a specific method or interface
-	}
-	
-	// Assuming event has Comm and Syscall methods/fields. Let's just mock it for compilation.
-	// We'll actually pass an interface with GetComm() and GetSyscall() later if needed,
-	// but Go structural typing doesn't exist for fields. 
-	// Let's redefine EventData in policy package.
-	return p.evaluate(comm, syscall) // Fallback
+// Evaluate is fail-closed: any matching deny beats allow/alert/audit.
+func (p *PolicyEngine) Evaluate(event Event) Action {
+	return p.evaluate(event.Comm, event.Syscall)
 }
 
 func (p *PolicyEngine) EvaluateData(comm string, syscall string) Action {
 	return p.evaluate(comm, syscall)
 }
 
-func (p *PolicyEngine) evaluate(comm, syscall string) Action {
-	for _, rule := range p.policy.Rules {
-		if strings.Contains(comm, rule.ProcessPattern) || rule.ProcessPattern == "*" {
-			for _, st := range rule.SyscallTypes {
-				if st == syscall || st == "*" {
-					return rule.Action
-				}
-			}
+func matchProcess(comm, pattern string) bool {
+	if pattern == "" || pattern == "*" {
+		return true
+	}
+	if comm == pattern {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(comm, strings.TrimPrefix(pattern, "*")) {
+		return true
+	}
+	if strings.HasSuffix(pattern, "*") && strings.HasPrefix(comm, strings.TrimSuffix(pattern, "*")) {
+		return true
+	}
+	return false
+}
+
+func matchSyscall(syscall string, types []string) bool {
+	if len(types) == 0 {
+		return false
+	}
+	for _, st := range types {
+		if st == "*" || st == syscall {
+			return true
 		}
 	}
-	return p.policy.DefaultAction
+	return false
+}
+
+func (p *PolicyEngine) evaluate(comm, syscall string) Action {
+	matched := false
+	best := p.policy.DefaultAction
+	if best == "" {
+		best = ActionDeny
+	}
+	for _, rule := range p.policy.Rules {
+		if !matchProcess(comm, rule.ProcessPattern) {
+			continue
+		}
+		if !matchSyscall(syscall, rule.SyscallTypes) {
+			continue
+		}
+		matched = true
+		if rule.Action == ActionDeny {
+			return ActionDeny
+		}
+		best = rule.Action
+	}
+	if !matched && p.policy.DefaultAction == "" {
+		return ActionDeny
+	}
+	return best
 }

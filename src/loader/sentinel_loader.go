@@ -68,7 +68,7 @@ func (s *SentinelLoader) Start(ctx context.Context) error {
 					Args:      []string{"/bin/ls"},
 					Timestamp: time.Now(),
 				}
-				action := s.policy.Evaluate(event)
+				action := s.policy.Evaluate(policy.Event{Comm: event.Comm, Syscall: event.Syscall})
 				event.Action = string(action)
 				
 				eventsTotal.WithLabelValues(event.Syscall, event.Action).Inc()
